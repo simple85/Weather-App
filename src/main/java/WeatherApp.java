@@ -1,9 +1,13 @@
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
 
+import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Scanner;
@@ -15,11 +19,15 @@ data from the external API and return it. The GUI will display the data to the u
 public class WeatherApp {
     public static JSONObject getWeatherData (String locationName) {
         JSONArray locationData = getLocationData(locationName);
+        if (locationData == null || locationData.isEmpty()) {
+            //couldn't find location
+            return null;
+        }
 
         //get latitude and longitude data
         JSONObject location = (JSONObject) locationData.get(0);
-        double latitude = (double) location.get("latitude");
-        double longitude = (double) location.get("longitude");
+        double latitude = ((Number) location.get("latitude")).doubleValue();
+        double longitude = ((Number) location.get("longitude")).doubleValue();
 
         //build API request wth location coordinates
         String urlString = "https://api.open-meteo.com/v1/forecast?latitude="+
@@ -31,56 +39,12 @@ public class WeatherApp {
             HttpURLConnection conn = fetchApiResponse(urlString);
 
             //check response status code
-            if (conn.getResponseCode() !=200) {
+            if (conn == null || conn.getResponseCode() !=200) {
                 System.out.println("Error: Could not connect to API");
+                return null;
             }
 
-            //store result json data
-            StringBuilder resultJson = new StringBuilder();
-            Scanner scanner = new Scanner(conn.getInputStream());
-
-            while (scanner.hasNext()) {
-                //read and store
-                resultJson.append(scanner.nextLine());
-            }
-            scanner.close();
-            conn.disconnect();
-
-            //parse through the data
-            JSONParser parser = new JSONParser();
-            JSONObject resultJsonObj = (JSONObject) parser.parse(String.valueOf(resultJson));
-
-            //get hourly data
-            JSONObject hourly = (JSONObject) resultJsonObj.get("hourly");
-
-            //get current hour
-            JSONArray time = (JSONArray) hourly.get("time");
-            int index = findIndexOfCurrentTime(time);
-
-            //get temperature
-            JSONArray temperatureData = (JSONArray) hourly.get("temperature_2m");
-            double temperature = (double) temperatureData.get(index);
-
-            //get weather code
-            JSONArray weatherCode = (JSONArray) hourly.get("weather_code");
-            String weatherCondition = convertWeatherCode((long) weatherCode.get(index));
-
-            //get humidity
-            JSONArray relativeHumdity = (JSONArray) hourly.get("relative_humidity_2m");
-            long humidity = (long) relativeHumdity.get(index);
-
-            //get windspeed
-            JSONArray windspeedData = (JSONArray) hourly.get("wind_speed_10m");
-            double windspeed = (double) windspeedData.get(index);
-
-            //build weather json data object to access in the frontend
-            JSONObject weatherData = new JSONObject();
-            weatherData.put("temperature", temperature);
-            weatherData.put("weather_condition", weatherCondition);
-            weatherData.put("humidity", humidity);
-            weatherData.put("windspeed", windspeed);
-
-            return weatherData;
+            return parseWeatherData(readBody(conn), getCurrentTime());
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -90,49 +54,86 @@ public class WeatherApp {
 
     }
 
-    public static JSONArray getLocationData(String locationName) {
-        //replace space to "+" to use the API
-        locationName = locationName.replaceAll(" ", "+");
+    //pick the values for the current hour out of the hourly forecast
+    static JSONObject parseWeatherData(String json, String currentTime) throws ParseException {
+        JSONParser parser = new JSONParser();
+        JSONObject resultJsonObj = (JSONObject) parser.parse(json);
 
+        //get hourly data
+        JSONObject hourly = (JSONObject) resultJsonObj.get("hourly");
+
+        //get current hour
+        JSONArray time = (JSONArray) hourly.get("time");
+        int index = findIndexOfTime(time, currentTime);
+
+        //get temperature
+        JSONArray temperatureData = (JSONArray) hourly.get("temperature_2m");
+        double temperature = ((Number) temperatureData.get(index)).doubleValue();
+
+        //get weather code
+        JSONArray weatherCode = (JSONArray) hourly.get("weather_code");
+        String weatherCondition = convertWeatherCode(((Number) weatherCode.get(index)).longValue());
+
+        //get humidity
+        JSONArray relativeHumdity = (JSONArray) hourly.get("relative_humidity_2m");
+        long humidity = ((Number) relativeHumdity.get(index)).longValue();
+
+        //get windspeed
+        JSONArray windspeedData = (JSONArray) hourly.get("wind_speed_10m");
+        double windspeed = ((Number) windspeedData.get(index)).doubleValue();
+
+        //build weather json data object to access in the frontend
+        JSONObject weatherData = new JSONObject();
+        weatherData.put("temperature", temperature);
+        weatherData.put("weather_condition", weatherCondition);
+        weatherData.put("humidity", humidity);
+        weatherData.put("windspeed", windspeed);
+
+        return weatherData;
+    }
+
+    public static JSONArray getLocationData(String locationName) {
         //build API url with location parameter
         String urlString = "https://geocoding-api.open-meteo.com/v1/search?name=" +
-        locationName + "&count=10&language=en&format=json";
+        URLEncoder.encode(locationName, StandardCharsets.UTF_8) + "&count=10&language=en&format=json";
 
         try {
             //call API and get a response
             HttpURLConnection conn = fetchApiResponse(urlString);
 
             //check response status code
-            if (conn.getResponseCode()!= 200) {
+            if (conn == null || conn.getResponseCode()!= 200) {
                 System.out.println("Error, could not connect to the API");
                 return null;
-            } else {
-                //store the API result
-                StringBuilder resultJson = new StringBuilder();
-                //use scanner to read the json data that is returned from the API
-                Scanner scanner = new Scanner(conn.getInputStream());
-
-                //read and store data to stringbuilder
-                while(scanner.hasNext()) {
-                    resultJson.append(scanner.nextLine());
-                }
-                scanner.close();
-                conn.disconnect();
-
-                //parse json string into json object
-                JSONParser parser = new JSONParser();
-                JSONObject resultsJsonObj = (JSONObject) parser.parse(String.valueOf(resultJson));
-
-                //get the list of location data the API generated from the location name
-                JSONArray locationData = (JSONArray) resultsJsonObj.get("results");
-                return locationData;
             }
+            return parseLocationData(readBody(conn));
 
         } catch (Exception e) {
             e.printStackTrace();
         }
         //couldn't find location
         return null;
+    }
+
+    //get the list of location data the API generated from the location name
+    static JSONArray parseLocationData(String json) throws ParseException {
+        JSONParser parser = new JSONParser();
+        JSONObject resultsJsonObj = (JSONObject) parser.parse(json);
+        //the API leaves out "results" entirely when nothing matches
+        JSONArray locationData = (JSONArray) resultsJsonObj.get("results");
+        return locationData == null ? new JSONArray() : locationData;
+    }
+
+    private static String readBody(HttpURLConnection conn) throws IOException {
+        StringBuilder resultJson = new StringBuilder();
+        try (Scanner scanner = new Scanner(conn.getInputStream(), StandardCharsets.UTF_8)) {
+            while (scanner.hasNext()) {
+                resultJson.append(scanner.nextLine());
+            }
+        } finally {
+            conn.disconnect();
+        }
+        return resultJson.toString();
     }
 
     private static HttpURLConnection fetchApiResponse(String urlString) {
@@ -155,8 +156,7 @@ public class WeatherApp {
         return null;
     }
 
-    private static int findIndexOfCurrentTime(JSONArray timeList) {
-        String currentTime = getCurrentTime();
+    static int findIndexOfTime(JSONArray timeList, String currentTime) {
         for (int i = 0; i<timeList.size(); i++) {
             String time = (String) timeList.get(i);
             if(time.equalsIgnoreCase(currentTime)) {
@@ -174,7 +174,7 @@ public class WeatherApp {
         return formattedDateTime;
     }
     //convert weather code to something readable
-    private static String convertWeatherCode(long weathercode) {
+    static String convertWeatherCode(long weathercode) {
         String weatherCondition = "";
         switch ((int) weathercode) {
             case 0:

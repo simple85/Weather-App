@@ -6,7 +6,7 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
-import java.io.File;
+import java.io.InputStream;
 import java.io.IOException;
 
 public class WeatherAppGui extends JFrame {
@@ -34,7 +34,7 @@ public class WeatherAppGui extends JFrame {
         add(searchTextField);
 
 
-        JLabel weatherConditionImage = new JLabel(loadImage("src/main/resources/clouds-3.png"));
+        JLabel weatherConditionImage = new JLabel(loadImage("clouds-3.png"));
         weatherConditionImage.setBounds(0, 125, 450, 217);
         add(weatherConditionImage);
 
@@ -51,7 +51,7 @@ public class WeatherAppGui extends JFrame {
         weatherConditionDescription.setHorizontalAlignment(SwingConstants.CENTER);
         add(weatherConditionDescription);
 
-        JLabel humidityImage = new JLabel(loadImage("src/main/resources/humidity.png"));
+        JLabel humidityImage = new JLabel(loadImage("humidity.png"));
         humidityImage.setBounds(10, 530, 74, 66);
         add(humidityImage);
 
@@ -60,7 +60,7 @@ public class WeatherAppGui extends JFrame {
         humidityText.setFont(new Font("Ink Free", Font.PLAIN, 16));
         add(humidityText);
 
-        JLabel windspeedImage = new JLabel(loadImage("src/main/resources/wind-2.png"));
+        JLabel windspeedImage = new JLabel(loadImage("wind-2.png"));
         windspeedImage.setBounds(220, 530, 74, 65);
         add(windspeedImage);
 
@@ -69,7 +69,7 @@ public class WeatherAppGui extends JFrame {
         windspeedText.setFont(new Font("Ink Free", Font.PLAIN, 16));
         add(windspeedText);
 
-        JButton searchButton = new JButton(loadImage("src/main/resources/search.png"));
+        JButton searchButton = new JButton(loadImage("search.png"));
         searchButton.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         searchButton.setBounds(375, 13, 45, 45);
         searchButton.addActionListener(new ActionListener() {
@@ -84,37 +84,16 @@ public class WeatherAppGui extends JFrame {
 
                 //update gui
 
+                if (weatherData == null) {
+                    JOptionPane.showMessageDialog(WeatherAppGui.this,
+                            "Could not find weather for \"" + userInput + "\"", "Weather App",
+                            JOptionPane.WARNING_MESSAGE);
+                    return;
+                }
+
                 //update weather image
                 String weatherCondition = (String) weatherData.get("weather_condition");
-                switch(weatherCondition) {
-                    case "Clear", "Mainly Clear":
-                        weatherConditionImage.setIcon(loadImage("src/main/resources/sun.png"));
-                        break;
-                    case "Cloudy", "Partly Cloudy", "Overcast", "Fog", "Depositing Rime Fog":
-                        weatherConditionImage.setIcon(loadImage("src/main/resources/clouds-3.png"));
-                        break;
-                    case "Light Drizzle", "Moderate Drizzle", "Dense Drizzle",
-                         "Light Freezing Drizzle", "Dense Freezing Drizzle",
-                         "Slight Rain", "Moderate Rain", "Heavy Rain",
-                         "Light Freezing Rain", "Heavy Freezing Rain",
-                         "Slight Rain Showers", "Moderate Rain Showers",
-                         "Violent Rain Showers":
-                        weatherConditionImage.setIcon(loadImage("src/main/resources/rain.png"));
-                        break;
-                    case "Slight Snow Fall", "Moderate Snow Fall",
-                         "Heavy Snow Fall", "Slight Snow Showers",
-                         "Heavy Snow Showers":
-                        weatherConditionImage.setIcon(loadImage("src/main/resources/snowy.png"));
-                        break;
-                    case "Thunderstorm":
-                        weatherConditionImage.setIcon(loadImage("src/main/resources/thunder.png"));
-                        break;
-                    case "Thunderstorm With Slight Hail", "Thunderstorm With Heavy Hail":
-                        weatherConditionImage.setIcon(loadImage("src/main/resources/thunderstorm.png"));
-                        break;
-
-
-                }
+                weatherConditionImage.setIcon(loadImage(iconFor(weatherCondition)));
 
                 //update temperature text
                 double temperature = (double) weatherData.get("temperature");
@@ -135,15 +114,37 @@ public class WeatherAppGui extends JFrame {
         add(searchButton);
     }
 
-    private ImageIcon loadImage(String filePath) {
+    //map a weather condition to the icon that represents it
+    static String iconFor(String weatherCondition) {
+        return switch (weatherCondition) {
+            case "Clear", "Mainly Clear" -> "sun.png";
+            case "Light Drizzle", "Moderate Drizzle", "Dense Drizzle",
+                 "Light Freezing Drizzle", "Dense Freezing Drizzle",
+                 "Slight Rain", "Moderate Rain", "Heavy Rain",
+                 "Light Freezing Rain", "Heavy Freezing Rain",
+                 "Slight Rain Showers", "Moderate Rain Showers",
+                 "Violent Rain Showers" -> "rain.png";
+            case "Slight Snow Fall", "Moderate Snow Fall",
+                 "Heavy Snow Fall", "Snow Grains", "Slight Snow Showers",
+                 "Heavy Snow Showers" -> "snowy.png";
+            case "Thunderstorm" -> "thunder.png";
+            case "Thunderstorm With Slight Hail", "Thunderstorm With Heavy Hail" -> "thunderstorm.png";
+            default -> "clouds-3.png";
+        };
+    }
 
-        try {
-            BufferedImage image = ImageIO.read(new File(filePath));
-            return new ImageIcon(image);
+    //images are bundled on the classpath so the app also runs from a jar
+    private ImageIcon loadImage(String fileName) {
+
+        try (InputStream in = getClass().getResourceAsStream("/" + fileName)) {
+            if (in != null) {
+                BufferedImage image = ImageIO.read(in);
+                return new ImageIcon(image);
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
-        System.out.println("Cannot find the file");
+        System.out.println("Cannot find the file " + fileName);
         return null;
     }
 }
